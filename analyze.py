@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-RAIDLOGS_TOKEN = os.environ["RAIDLOGS_TOKEN"]
+RAIDHELPER_TOKEN = os.environ["RAIDHELPER_TOKEN"]
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 DISCORD_SERVER_ID = int(os.environ["DISCORD_SERVER_ID"])
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
@@ -343,21 +343,21 @@ def get_discord_member_data(member_ids: list[int]) -> list[discord.Member]:
 
 
 def fetch_attendance() -> dict:
-    return requests.get(URL_ATTENDANCE, headers={"Authorization": RAIDLOGS_TOKEN}).json()
+    return requests.get(URL_ATTENDANCE, headers={"Authorization": RAIDHELPER_TOKEN}).json()
 
 
 def fetch_events() -> EventCollector:
     data = EventCollector()
     initial_page = requests.get(
         URL_EVENTS,
-        headers={"Authorization": RAIDLOGS_TOKEN, "Page": str(1)},
+        headers={"Authorization": RAIDHELPER_TOKEN, "Page": str(1)},
     ).json()
 
     for page in range(1, initial_page["pages"] + 1):
         resp = requests.get(
             URL_EVENTS,
             headers={
-                "Authorization": RAIDLOGS_TOKEN,
+                "Authorization": RAIDHELPER_TOKEN,
                 "Page": str(page),
                 "IncludeSignUps": "True",
             },
