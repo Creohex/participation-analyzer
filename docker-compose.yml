@@ -1,0 +1,10 @@
+services:
+    raid-analyzer:
+        build:
+            context: ./
+            dockerfile: ./Dockerfile
+        volumes:
+            - ./google_auth:/app/google_auth
+        env_file:
+            - .env
+        entrypoint: "python analyze.py"
