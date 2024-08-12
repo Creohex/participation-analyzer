@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "participation-analyzer"
+version = "0.1.0"
+description = ""
+authors = ["..."]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+py-cord = "^2.6.0"
+requests = "^2.32.3"
+google-auth = "^2.33.0"
+google-auth-oauthlib = "^1.2.1"
+google-api-python-client = "^2.140.0"
+gspread = "^6.1.2"
+python-dotenv = "^1.0.1"
+schedule = "^1.2.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
