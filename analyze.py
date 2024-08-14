@@ -362,7 +362,6 @@ def get_discord_member_data(member_ids: list[int]) -> list[discord.Member]:
     @client.event
     async def on_ready():
         try:
-            print(f"Logged in as: {client.user}")
             guild = client.get_guild(DISCORD_SERVER_ID)
             if not guild:
                 raise Exception(f"Discord server not found: '{DISCORD_SERVER_ID}'")
@@ -445,6 +444,7 @@ class GoogleSheetExporter(Singleton):
 
 
 def job() -> None:
+    print(f"\n\n{dt.now().ctime()}: Executing...")
     data = fetch_events()
     data.fetch_date_joined()
     data.save()
@@ -481,6 +481,8 @@ def job() -> None:
     exporter.sheet(3).update_title("Sign-up types")
     exporter.sheet(3).insert_rows(data.sign_up_modes_to_csv())
     exporter.sheet(3).freeze(rows=1)
+
+    print(f"{dt.now().ctime()}: Done.\n---")
 
 
 # TODO: retain historical data, draw change over time (?)
