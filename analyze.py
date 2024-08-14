@@ -4,7 +4,7 @@ import requests
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime as dt
+from datetime import date, datetime as dt
 from pathlib import Path
 from typing import Self
 from yarl import URL
@@ -12,6 +12,7 @@ from yarl import URL
 import discord
 import gspread
 import schedule
+from dateutil.relativedelta import relativedelta as tdelta
 from google.oauth2.service_account import Credentials
 from gspread.utils import ValueInputOption
 
@@ -48,6 +49,15 @@ WEEKDAYS = {
     SATURDAY: "saturday",
     SUNDAY: "sunday",
 }
+
+
+class Singleton:
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
 
 
 @dataclass
@@ -178,6 +188,19 @@ class EventCollector:
     events: list[Event] = field(default_factory=list)
 
     EXCLUDE_SIGNUP_MODES = ["Tentative", "Absence"]
+    SIGNUP_MODES = {
+        "Tentative": "T",
+        "Absence": "A",
+    }
+    SIGN_DEFAULT = "✓"
+
+    @property
+    def cut_off_date(self):
+        return dt.combine(date.today() - tdelta(months=3), dt.min.time())
+
+    @classmethod
+    def signup_character(cls, mode):
+        return cls.SIGNUP_MODES.get(mode, cls.SIGN_DEFAULT)
 
     def add(self, event_dict: dict) -> None:
         event = Event.from_dict(event_dict)
@@ -226,11 +249,19 @@ class EventCollector:
             member = next(m for m in self.members if m.id == disc_member.id)
             member.joined_at = disc_member.joined_at.timestamp()
 
-    def calculate_attendance(self, week_days=None, as_csv=False) -> None:
+    def calc_attendance(self, week_days=None, as_csv=False) -> None:
         week_days = week_days or list(WEEKDAYS.keys())
         cur_ts = dt.now().timestamp()
+        cut_off_ts = self.cut_off_date.timestamp()
         events = list(
-            filter(lambda e: e.end_time < cur_ts and e.weekday in week_days, self.events)
+            filter(
+                lambda e: (
+                    e.start_time >= cut_off_ts
+                    and e.end_time < cur_ts
+                    and e.weekday in week_days
+                ),
+                self.events,
+            )
         )
         member_attendance = {}
 
@@ -304,12 +335,17 @@ class EventCollector:
             ]
             signups_by_id = {s.user_id: s for s in e.sign_ups}
             row.extend(
-                (("-" if s.class_name in self.EXCLUDE_SIGNUP_MODES else "x") if s else "")
+                (self.signup_character(s.class_name) if s else "")
                 for s in (signups_by_id.get(m.id) for m in members)
             )
             csv.append(row)
         csv.insert(0, ["Raid", "Title"] + [m.name for m in members])
 
+        return csv
+
+    def sign_up_modes_to_csv(self):
+        csv = [[c, self.signup_character(c)] for c in sorted(list(self.sign_up_modes))]
+        csv.insert(0, ["Classname", "Sign"])
         return csv
 
 
@@ -343,7 +379,9 @@ def get_discord_member_data(member_ids: list[int]) -> list[discord.Member]:
 
 
 def fetch_attendance() -> dict:
-    return requests.get(URL_ATTENDANCE, headers={"Authorization": RAIDHELPER_TOKEN}).json()
+    return requests.get(
+        URL_ATTENDANCE, headers={"Authorization": RAIDHELPER_TOKEN}
+    ).json()
 
 
 def fetch_events() -> EventCollector:
@@ -377,60 +415,87 @@ def export_to_file(data: dict, filename: str, suffix: str = ".json") -> None:
         json.dump(data, file, indent=2)
 
 
-def export_to_google_docs(
-    participation_csv: list,
-    participation_title: str,
-    events_csv: list,
-    members_csv: list,
-    title="Raid data",
-) -> None:
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    service_key = Path.cwd() / "google_auth" / "google_key.json"
-    credentials = Credentials.from_service_account_file(service_key, scopes=scopes)
-    gc = gspread.authorize(credentials)
-    document = gc.open_by_key(GOOGLE_SHEET_ID)
-    document.update_title(title)
+class GoogleSheetExporter(Singleton):
+    WORKSHEETS_MAX = 10
 
-    document.sheet1.clear()
-    document.sheet1.update_title(participation_title)
-    document.sheet1.insert_rows(participation_csv, 1)
+    def __init__(self) -> None:
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        service_key = Path.cwd() / "google_auth" / "google_key.json"
+        credentials = Credentials.from_service_account_file(service_key, scopes=scopes)
+        self.gc = gspread.authorize(credentials)
+        self.document = self.gc.open_by_key(GOOGLE_SHEET_ID)
+        self.sheets = {}
 
-    sheet2 = document.get_worksheet(1)
-    sheet2.update_title("Raids")
-    sheet2.clear()
-    sheet2.insert_rows(events_csv, value_input_option=ValueInputOption.user_entered)
+    def sheet(self, index=0):
+        if not isinstance(index, int) or not 0 <= index <= self.WORKSHEETS_MAX:
+            raise Exception(f"Invalid worksheet index ({index})")
+        if index in self.sheets:
+            return self.sheets[index]
+        try:
+            sheet = self.document.get_worksheet(index)
+            self.sheets[index] = sheet
+            return sheet
+        except gspread.exceptions.WorksheetNotFound:
+            for i in range(len(self.document.worksheets()), index + 1):
+                print("CREATING", i)
+                self.sheets[i] = self.document.add_worksheet(
+                    f"worksheet {i + 1}", 100, 20
+                )
+            return self.sheets[index]
 
-    sheet3 = document.get_worksheet(2)
-    sheet3.update_title("Members")
-    sheet3.clear()
-    sheet3.insert_rows(members_csv)
+
+def job() -> None:
+    data = fetch_events()
+    data.fetch_date_joined()
+    data.save()
+    # data = EventCollector.load()
+
+    exporter = GoogleSheetExporter()
+
+    days = [TUESDAY, THURSDAY, FRIDAY, SATURDAY]
+    title = f"Raid data (updated @ {dt.now().ctime()})"
+    exporter.document.update_title(title)
+
+    exporter.sheet(0).clear()
+    exporter.sheet(0).update_title(
+        f"Participation ({len(days)} main days, cut-off - {str(data.cut_off_date.date())})"
+    )
+
+    exporter.sheet(0).insert_rows(data.calc_attendance(week_days=days, as_csv=True))
+    exporter.sheet(0).freeze(rows=1)
+
+    exporter.sheet(1).clear()
+    exporter.sheet(1).update_title("All raids")
+    exporter.sheet(1).insert_rows(
+        data.raid_data_to_csv(),
+        value_input_option=ValueInputOption.user_entered,
+    )
+    exporter.sheet(1).freeze(rows=1, cols=2)
+
+    exporter.sheet(2).clear()
+    exporter.sheet(2).update_title("Members")
+    exporter.sheet(2).insert_rows(data.members_to_csv())
+    exporter.sheet(2).freeze(rows=1)
+
+    exporter.sheet(3).clear()
+    exporter.sheet(3).update_title("Sign-up types")
+    exporter.sheet(3).insert_rows(data.sign_up_modes_to_csv())
+    exporter.sheet(3).freeze(rows=1)
 
 
 # TODO: retain historical data, draw change over time (?)
 def main() -> None:
-    def job():
-        print(f"{str(dt.now())}: Executing main job...")
-        days = [TUESDAY, THURSDAY, FRIDAY, SATURDAY]
-        data = fetch_events()
-        data.fetch_date_joined()
-        data.save()
-        # data = EventCollector.load()
-
-        participation_csv = data.calculate_attendance(week_days=days, as_csv=True)
-        export_to_google_docs(
-            participation_csv=participation_csv,
-            participation_title=f"Raid participation ({', '.join(WEEKDAYS[day] for day in days)})",
-            events_csv=data.raid_data_to_csv(),
-            members_csv=data.members_to_csv(),
-        )
-        print(f"{str(dt.now())}: Done.")
-
-    schedule.every().day.at("20:00", "Europe/Amsterdam").do(job)
+    if not all(
+        map(bool, (RAIDHELPER_TOKEN, DISCORD_TOKEN, DISCORD_SERVER_ID, GOOGLE_SHEET_ID))
+    ):
+        raise Exception("Not all env vars are set!")
 
     print("Running...")
+    schedule.every().day.at("02:00", "Europe/Amsterdam").do(job)
     while True:
         schedule.run_pending()
         time.sleep(600)
+
     # job()
 
 
