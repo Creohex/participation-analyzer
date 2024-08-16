@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import requests
@@ -357,7 +358,7 @@ def get_discord_member_data(member_ids: list[int]) -> list[discord.Member]:
 
     intents = discord.Intents.default()
     intents.members = True
-    client = discord.Client(intents=intents)
+    client = discord.Client(loop=asyncio.new_event_loop(), intents=intents)
 
     @client.event
     async def on_ready():
