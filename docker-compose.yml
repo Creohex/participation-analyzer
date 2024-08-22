@@ -5,6 +5,7 @@ services:
             dockerfile: ./Dockerfile
         volumes:
             - ./google_auth:/app/google_auth
+            - ./exports:/app/exports
         env_file:
             - .env
         entrypoint: "python -u analyze.py"
