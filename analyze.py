@@ -297,6 +297,7 @@ class EventCollector:
                 "participation": f"{len(events_participated) / (len(main_events_since) or 1) * 100.0:.2f}%",
                 "participated": len(events_participated),
                 "total_raids_since_joining": len(main_events_since),
+                "total_participation": f"{len(events_participated) / (len(events) or 1) * 100.0:.2f}%",
             }
 
         export_to_file(member_attendance, "participation_normalized")
@@ -307,6 +308,7 @@ class EventCollector:
                     [
                         name,
                         params["participation"],
+                        params["total_participation"],
                         params["total_raids_since_joining"],
                         params["participated"],
                     ]
@@ -316,7 +318,13 @@ class EventCollector:
             )
             csv.insert(
                 0,
-                ["Name", "Participation", "№ of raids since joining", "participated"],
+                [
+                    "Name",
+                    "Participation",
+                    "Participation (total)",
+                    "# of raids since joining",
+                    "# of raids participated",
+                ],
             )
             return csv
 
@@ -534,3 +542,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # job()
