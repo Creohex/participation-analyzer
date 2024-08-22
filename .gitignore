@@ -1,5 +1,5 @@
 google_auth/*.json
-exports
+exports/*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
