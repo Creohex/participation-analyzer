@@ -237,8 +237,11 @@ class EventCollector:
 
     @classmethod
     def load(cls, file="exports/data.json") -> Self:
-        with open(Path.cwd() / file, "r") as f:
-            data: dict = json.load(f)
+        try:
+            with open(Path.cwd() / file, "r") as f:
+                data: dict = json.load(f)
+        except FileNotFoundError:
+            return None
 
         return EventCollector(
             members=set(
