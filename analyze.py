@@ -486,7 +486,6 @@ def job() -> None:
     print(f"{dt.now().ctime()}: Done.\n---")
 
 
-# TODO: retain historical data, draw change over time (?)
 def main() -> None:
     if not all(
         map(bool, (RAIDHELPER_TOKEN, DISCORD_TOKEN, DISCORD_SERVER_ID, GOOGLE_SHEET_ID))
@@ -498,8 +497,6 @@ def main() -> None:
     while True:
         schedule.run_pending()
         time.sleep(600)
-
-    # job()
 
 
 if __name__ == "__main__":
