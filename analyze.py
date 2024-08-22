@@ -15,6 +15,7 @@ import gspread
 import schedule
 from dateutil.relativedelta import relativedelta as tdelta
 from google.oauth2.service_account import Credentials
+from gspread_formatting import format_cell_range, CellFormat, Color
 from gspread.utils import ValueInputOption
 
 
@@ -447,6 +448,25 @@ class GoogleSheetExporter(Singleton):
                 )
             return self.sheets[index]
 
+    def paint_background(
+        self,
+        sheet_id: int,
+        cell_range_a1: str,
+        color: Color,
+    ) -> None:
+        format_cell_range(
+            self.sheet(sheet_id), cell_range_a1, CellFormat(backgroundColor=color)
+        )
+
+    @staticmethod
+    def int_to_a1(column: int) -> str:
+        result = ""
+        while column > 0:
+            column -= 1
+            result = chr(column % 26 + ord("A")) + result
+            column //= 26
+        return result
+
 
 def job() -> None:
     print(f"\n\n{dt.now().ctime()}: Executing...")
@@ -461,6 +481,7 @@ def job() -> None:
     title = f"Raid data (updated @ {dt.now().ctime()})"
     exporter.document.update_title(title)
 
+    # tab 1:
     exporter.sheet(0).clear()
     exporter.sheet(0).update_title(
         f"Participation ({len(days)} main days, cut-off - {str(data.cut_off_date.date())})"
@@ -469,6 +490,7 @@ def job() -> None:
     exporter.sheet(0).insert_rows(data.calc_attendance(week_days=days, as_csv=True))
     exporter.sheet(0).freeze(rows=1)
 
+    # tab 2:
     exporter.sheet(1).clear()
     exporter.sheet(1).update_title("All raids")
     exporter.sheet(1).insert_rows(
@@ -476,12 +498,19 @@ def job() -> None:
         value_input_option=ValueInputOption.user_entered,
     )
     exporter.sheet(1).freeze(rows=1, cols=2)
+    exporter.paint_background(
+        1,
+        f"A{2}:{exporter.int_to_a1(len(data.members) + 2)}{len(data.future_events) + 1}",
+        Color(0.7, 0.7, 0.7),
+    )
 
+    # tab 3:
     exporter.sheet(2).clear()
     exporter.sheet(2).update_title("Members")
     exporter.sheet(2).insert_rows(data.members_to_csv())
     exporter.sheet(2).freeze(rows=1)
 
+    # tab 4:
     exporter.sheet(3).clear()
     exporter.sheet(3).update_title("Sign-up types")
     exporter.sheet(3).insert_rows(data.sign_up_modes_to_csv())
