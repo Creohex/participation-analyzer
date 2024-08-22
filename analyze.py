@@ -187,6 +187,7 @@ class EventCollector:
     )
     sign_up_modes: set[str] = field(default_factory=set)
     events: list[Event] = field(default_factory=list)
+    cur_ts: int = field(default_factory=lambda: dt.now().timestamp())
 
     EXCLUDE_SIGNUP_MODES = ["Tentative", "Absence"]
     SIGNUP_MODES = {
@@ -198,6 +199,10 @@ class EventCollector:
     @property
     def cut_off_date(self):
         return dt.combine(date.today() - tdelta(months=3), dt.min.time())
+
+    @property
+    def future_events(self):
+        return [e for e in self.events if e.end_time > self.cur_ts]
 
     @classmethod
     def signup_character(cls, mode):
@@ -252,13 +257,12 @@ class EventCollector:
 
     def calc_attendance(self, week_days=None, as_csv=False) -> None:
         week_days = week_days or list(WEEKDAYS.keys())
-        cur_ts = dt.now().timestamp()
         cut_off_ts = self.cut_off_date.timestamp()
         events = list(
             filter(
                 lambda e: (
                     e.start_time >= cut_off_ts
-                    and e.end_time < cur_ts
+                    and e.end_time < self.cur_ts
                     and e.weekday in week_days
                 ),
                 self.events,
@@ -277,7 +281,7 @@ class EventCollector:
                     for e in self.events
                     if e.id in self.member_event_participation.get(str(m.id), [])
                 ],
-                default=cur_ts,
+                default=self.cur_ts,
             )
             member_starting_point = max(m.joined_at, first_raid_ts)
             main_events_since = list(
