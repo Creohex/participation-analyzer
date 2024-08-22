@@ -491,10 +491,7 @@ def job() -> None:
 
     # tab 1:
     exporter.sheet(0).clear()
-    exporter.sheet(0).update_title(
-        f"Participation ({len(days)} main days, cut-off - {str(data.cut_off_date.date())})"
-    )
-
+    exporter.sheet(0).update_title(f"Participation")
     exporter.sheet(0).insert_rows(data.calc_attendance(week_days=days, as_csv=True))
     exporter.sheet(0).freeze(rows=1)
 
