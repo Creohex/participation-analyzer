@@ -189,6 +189,7 @@ class EventCollector:
     sign_up_modes: set[str] = field(default_factory=set)
     events: list[Event] = field(default_factory=list)
     cur_ts: int = field(default_factory=lambda: dt.now().timestamp())
+    calculated_attendance: dict = field(default_factory=dict)
 
     EXCLUDE_SIGNUP_MODES = ["Tentative", "Absence"]
     SIGNUP_MODES = {
@@ -221,21 +222,23 @@ class EventCollector:
                 continue
             self.member_event_participation[str(sign_up.user_id)].append(event.id)
 
-    def save(self) -> None:
+    def save(self, filename="data") -> None:
         export_to_file(
             {
+                "ts": self.cur_ts,
                 "members": list(map(lambda m: m.to_dict(), self.members)),
                 "event_participation": self.member_event_participation,
                 "sign_up_modes": list(self.sign_up_modes),
                 "events": [e.to_dict() for e in self.events],
+                "calculated_attendance": self.calculated_attendance,
             },
-            "data",
+            filename,
         )
 
     @classmethod
     def load(cls, file="exports/data.json") -> Self:
         with open(Path.cwd() / file, "r") as f:
-            data = json.load(f)
+            data: dict = json.load(f)
 
         return EventCollector(
             members=set(
@@ -249,6 +252,8 @@ class EventCollector:
             member_event_participation=data["event_participation"],
             sign_up_modes=set(data["sign_up_modes"]),
             events=[Event.from_dict(e) for e in data["events"]],
+            calculated_attendance=data.get("calculated_attendance"),
+            cur_ts=data.get("ts", dt.fromtimestamp(0)),
         )
 
     def fetch_date_joined(self) -> None:
@@ -256,8 +261,13 @@ class EventCollector:
             member = next(m for m in self.members if m.id == disc_member.id)
             member.joined_at = disc_member.joined_at.timestamp()
 
-    def calc_attendance(self, week_days=None, as_csv=False) -> None:
+    def calc_attendance(
+        self,
+        week_days: list[int] = None,
+        previous_attendance: dict[str, str] = None,
+    ) -> None:
         week_days = week_days or list(WEEKDAYS.keys())
+        previous_attendance = previous_attendance or {}
         cut_off_ts = self.cut_off_date.timestamp()
         events = list(
             filter(
@@ -269,7 +279,6 @@ class EventCollector:
                 self.events,
             )
         )
-        member_attendance = {}
 
         for m in self.members:
             # NOTE: exclude members that are no longer in this discord server:
@@ -293,42 +302,45 @@ class EventCollector:
                 self.member_event_participation.get(str(m.id), [])
             ).intersection([e.id for e in main_events_since])
 
-            member_attendance[m.name] = {
+            self.calculated_attendance[m.name] = {
                 "participation": f"{len(events_participated) / (len(main_events_since) or 1) * 100.0:.2f}%",
                 "participated": len(events_participated),
                 "total_raids_since_joining": len(main_events_since),
                 "total_participation": f"{len(events_participated) / (len(events) or 1) * 100.0:.2f}%",
+                "participation_prev": previous_attendance.get(m.name, {}).get("participation", "?"),
+                "total_participation_prev": previous_attendance.get(m.name, {}).get("total_participation", "?"),
             }
 
-        export_to_file(member_attendance, "participation_normalized")
-
-        if as_csv:
-            csv = sorted(
+    @classmethod
+    def attendance_to_csv(cls, member_attendance: dict) -> list:
+        csv = sorted(
+            [
                 [
-                    [
-                        name,
-                        params["participation"],
-                        params["total_participation"],
-                        params["total_raids_since_joining"],
-                        params["participated"],
-                    ]
-                    for name, params in member_attendance.items()
-                ],
-                key=lambda l: l[0],  # ], key=lambda l: -float(l[1][:-1]))
-            )
-            csv.insert(
-                0,
-                [
-                    "Name",
-                    "Participation",
-                    "Participation (total)",
-                    "# of raids since joining",
-                    "# of raids participated",
-                ],
-            )
-            return csv
-
-        return member_attendance
+                    name,
+                    params["participation"],
+                    params["total_participation"],
+                    params["total_raids_since_joining"],
+                    params["participated"],
+                    params["participation_prev"],
+                    params["total_participation_prev"],
+                ]
+                for name, params in member_attendance.items()
+            ],
+            key=lambda l: l[0],  # ], key=lambda l: -float(l[1][:-1]))
+        )
+        csv.insert(
+            0,
+            [
+                "Name",
+                "Attendance",
+                "Overall attendance",
+                "# of raids since joining",
+                "# of raids participated",
+                "Previous attendance",
+                "Previous overall attendance",
+            ],
+        )
+        return csv
 
     def members_to_csv(self):
         csv = [
@@ -478,21 +490,23 @@ class GoogleSheetExporter(Singleton):
 
 def job() -> None:
     print(f"\n\n{dt.now().ctime()}: Executing...")
+    days = [TUESDAY, THURSDAY, FRIDAY, SATURDAY]
+    data_last = EventCollector.load()
+    attendance_last = data_last.calculated_attendance if data_last else None
     data = fetch_events()
     data.fetch_date_joined()
+    data.calc_attendance(week_days=days, previous_attendance=attendance_last)
     data.save()
-    # data = EventCollector.load()
 
     exporter = GoogleSheetExporter()
-
-    days = [TUESDAY, THURSDAY, FRIDAY, SATURDAY]
-    title = f"Raid data (updated @ {dt.now().ctime()})"
-    exporter.document.update_title(title)
+    exporter.document.update_title(f"Raid data (updated @ {dt.now().ctime()})")
 
     # tab 1:
     exporter.sheet(0).clear()
     exporter.sheet(0).update_title(f"Participation")
-    exporter.sheet(0).insert_rows(data.calc_attendance(week_days=days, as_csv=True))
+    exporter.sheet(0).insert_rows(
+        EventCollector.attendance_to_csv(data.calculated_attendance)
+    )
     exporter.sheet(0).freeze(rows=1)
 
     # tab 2:
