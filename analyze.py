@@ -548,6 +548,9 @@ def main() -> None:
         raise Exception("Not all env vars are set!")
 
     print("Running...")
+    schedule.every().wednesday.at("03:00", "Europe/Amsterdam").do(job)
+    schedule.every().friday.at("03:00", "Europe/Amsterdam").do(job)
+    schedule.every().saturday.at("03:00", "Europe/Amsterdam").do(job)
     schedule.every().sunday.at("03:00", "Europe/Amsterdam").do(job)
     while True:
         schedule.run_pending()
