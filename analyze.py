@@ -62,6 +62,24 @@ class Singleton:
         return cls._instances[cls]
 
 
+class Config(dict):
+    @property
+    def merge_users(self) -> dict[int, list[int]]:
+        return {int(k): v for k, v in self.get("merge_users", {}).items()}
+
+    @classmethod
+    def from_file(cls, name: str = "config.conf") -> Self:
+        filename = Path.cwd().absolute() / name
+        try:
+            with open(filename, "r") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f"No configuration file present: {filename}")
+            return cls({})
+
+        return cls(data)
+
+
 @dataclass
 class Member:
     id: int
