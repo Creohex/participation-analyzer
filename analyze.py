@@ -569,6 +569,7 @@ def job() -> None:
         f"A{2}:{exporter.int_to_a1(len(data.members) + 2)}{len(data.future_events) + 1}",
         Color(0.7, 0.7, 0.7),
     )
+    exporter.sheet(1).delete_rows(len(data.events) + 2, exporter.sheet(1).row_count)
 
     # tab 3:
     exporter.sheet(2).clear()
