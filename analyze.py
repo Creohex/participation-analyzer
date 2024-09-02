@@ -277,6 +277,27 @@ class EventCollector:
             cur_ts=data.get("ts", dt.fromtimestamp(0)),
         )
 
+    def merge_users(self, member_aliases: dict[int, list[int]]) -> None:
+        for member_id, aliases in member_aliases.items():
+            member = next(m for m in self.members if m.id == member_id)
+
+            # events
+            for e in self.events:
+                for s in e.sign_ups:
+                    if s.user_id in aliases:
+                        s.user_id = member_id
+                        s.name = member.name
+
+            # event_participation
+            event_ids = []
+            for alias in [member_id] + aliases:
+                event_ids.extend(self.member_event_participation.pop(str(alias), []))
+            if event_ids:
+                self.member_event_participation[str(member_id)] = event_ids
+
+            # members
+            self.members = self.members - set(m for m in self.members if m.id in aliases)
+
     def fetch_date_joined(self) -> None:
         for disc_member in get_discord_member_data(m.id for m in self.members):
             member = next(m for m in self.members if m.id == disc_member.id)
@@ -328,8 +349,12 @@ class EventCollector:
                 "participated": len(events_participated),
                 "total_raids_since_joining": len(main_events_since),
                 "total_participation": f"{len(events_participated) / (len(events) or 1) * 100.0:.2f}%",
-                "participation_prev": previous_attendance.get(m.name, {}).get("participation", "?"),
-                "total_participation_prev": previous_attendance.get(m.name, {}).get("total_participation", "?"),
+                "participation_prev": previous_attendance.get(m.name, {}).get(
+                    "participation", "?"
+                ),
+                "total_participation_prev": previous_attendance.get(m.name, {}).get(
+                    "total_participation", "?"
+                ),
             }
 
     @classmethod
@@ -516,6 +541,7 @@ def job() -> None:
     attendance_last = data_last.calculated_attendance if data_last else None
     data = fetch_events()
     data.fetch_date_joined()
+    data.merge_users(Config.from_file().merge_users)
     data.calc_attendance(week_days=days, previous_attendance=attendance_last)
     data.save()
 
